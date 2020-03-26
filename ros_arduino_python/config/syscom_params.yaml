@@ -1,0 +1,56 @@
+port: /dev/ttyUSB0
+baud: 9600
+timeout: 0.1
+
+rate: 50
+sensorstate_rate: 10
+
+# Are we using the base controller code
+use_base_controller: True
+
+# Rate to publish odom info
+base_controller_rate: 50
+base_controller_timeout: 1.0
+
+# For a robot that uses base_footprint, change base_frame to base_footprint
+base_frame: base_link
+
+# Are we also using an IMU for heading data
+use_imu_heading: False
+
+# Publish the odom->base_link transform?
+publish_odom_base_transform: False
+
+# === Robot drivetrain parameters
+wheel_diameter: 0.208
+wheel_track: 0.38
+encoder_resolution: 400
+gear_reduction: 67.0
+# motors_reversed: True
+
+# === PID parameters
+#Kp: 10
+#Kd: 12
+#Ki: 0
+#Ko: 50
+accel_limit: 50.0
+
+# Odometry calibration correction factors
+odom_linear_scale_correction: 1.0
+odom_angular_scale_correction: 1.0
+
+# Sensor definitions
+sensors: {
+  sonar_1:         {pin: 0, type: Ping, rate: 5},
+  sonar_2:         {pin: 1, type: Ping, rate: 5},
+  sonar_3:         {pin: 2, type: Ping, rate: 5},
+  sonar_4:         {pin: 3, type: Ping, rate: 5},
+  sonar_5:         {pin: 4, type: Ping, rate: 5},
+  sonar_6:         {pin: 5, type: Ping, rate: 5},
+  sonar_7:         {pin: 6, type: Ping, rate: 5},
+  sonar_8:         {pin: 7, type: Ping, rate: 5},
+  sonar_9:         {pin: 8, type: Ping, rate: 5},
+  ir_front_A:      {pin: 0, type: GP2Y0A02YK0F, rate: 5},
+  ir_front_B:      {pin: 1, type: GP2Y0A02YK0F, rate: 5},
+  imu_data:        {type: IMU, rate: 5}
+}
