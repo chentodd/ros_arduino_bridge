@@ -23,6 +23,7 @@
 
 import rospy
 import sys, os
+import tf
 
 from math import sin, cos, pi
 from geometry_msgs.msg import Quaternion, Twist, Pose
@@ -78,7 +79,8 @@ class BaseController:
         self.ticks_per_meter = self.encoder_resolution * self.gear_reduction  / (self.wheel_diameter * pi)
 
         # What is the maximum acceleration we will tolerate when changing wheel speeds?
-        self.max_accel = self.accel_limit * self.ticks_per_meter / self.rate
+        # self.max_accel = self.accel_limit * self.ticks_per_meter / self.rate
+        self.max_accel = self.accel_limit
 
         # Track how often we get a bad encoder count (if any)
         self.bad_encoder_count = 0
@@ -143,6 +145,7 @@ class BaseController:
         now = rospy.Time.now()
         if now > self.t_next:
             # Read the encoders
+            rospy.loginfo("Time: %d" % now.secs)
             try:
                 self.diagnostics.reads += 1
                 self.diagnostics.total_reads += 1
@@ -193,7 +196,9 @@ class BaseController:
             self.enc_right = right_enc
             self.enc_left = left_enc
             
-            dxy_ave = self.odom_linear_scale_correction * (dright + dleft) / 2.0
+            # Old method, replace it with the Odometry::integrateExact and Odometry::integrateRungeKutta2
+            # in ros_diff_drive_controller
+            '''dxy_ave = self.odom_linear_scale_correction * (dright + dleft) / 2.0
             dth = self.odom_angular_scale_correction * (dright - dleft) / float(self.wheel_track)
             vxy = dxy_ave / dt
             vth = dth / dt
@@ -205,13 +210,28 @@ class BaseController:
                 self.y += (sin(self.th) * dx + cos(self.th) * dy)
     
             if (dth != 0):
-                self.th += dth 
-    
-            quaternion = Quaternion()
+                self.th += dth '''
+            linear = (dright + dleft) * 0.5
+            angular = (dright - dleft) / float(self.wheel_track)
+            if (abs(angular) < 1e-6) :
+                direction = self.th + angular * 0.5
+                self.x += linear * cos(direction)
+                self.y += linear * sin(direction)
+                self.th += angular
+            else :
+                heading_old = self.th
+                r = linear / angular
+                self.th += angular
+                self.x +=  r * (sin(self.th) - sin(heading_old))
+                self.y += -r * (cos(self.th) - cos(heading_old))
+
+            quaternion = tf.transformations.quaternion_from_euler(0, 0, self.th)
+
+            '''quaternion = Quaternion()
             quaternion.x = 0.0 
             quaternion.y = 0.0
             quaternion.z = sin(self.th / 2.0)
-            quaternion.w = cos(self.th / 2.0)
+            quaternion.w = cos(self.th / 2.0)'''
     
             # Create the odometry transform frame broadcaster.
             if self.publish_odom_base_transform:
@@ -231,13 +251,13 @@ class BaseController:
             odom.pose.pose.position.y = self.y
             odom.pose.pose.position.z = 0
             odom.pose.pose.orientation = quaternion
-            odom.twist.twist.linear.x = vxy
+            odom.twist.twist.linear.x = linear / dt
             odom.twist.twist.linear.y = 0
-            odom.twist.twist.angular.z = vth
+            odom.twist.twist.angular.z = angular / dt
             
             self.current_speed = Twist()
-            self.current_speed.linear.x = vxy
-            self.current_speed.angular.z = vth
+            self.current_speed.linear.x = linear / dt
+            self.current_speed.angular.z = angular / dt
 
             """
             Covariance values taken from Kobuki node odometry.cpp at:
@@ -261,9 +281,9 @@ class BaseController:
 
             self.odomPub.publish(odom)
             
-            if now > (self.last_cmd_vel + rospy.Duration(self.timeout)):
+            '''if now > (self.last_cmd_vel + rospy.Duration(self.timeout)):
                 self.v_des_left = 0
-                self.v_des_right = 0
+                self.v_des_right = 0'''
                 
             if self.v_left < self.v_des_left:
                 self.v_left += self.max_accel
@@ -284,8 +304,9 @@ class BaseController:
                     self.v_right = self.v_des_right
             
             # Set motor speeds in encoder ticks per PID loop
+            rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
             if not self.stopped:
-                self.arduino.drive(self.v_left, self.v_right)
+                self.arduino.drive(self.v_left * 100, self.v_right * 100)
                 
             self.t_next = now + self.t_delta
 
@@ -300,7 +321,8 @@ class BaseController:
         x = req.linear.x         # m/s
         th = req.angular.z       # rad/s
 
-        if x == 0:
+        # Comment this out, replace it with more simple calculation
+        '''if x == 0:
             # Turn in place
             right = th * self.wheel_track  * self.gear_reduction / 2.0
             left = -right
@@ -310,10 +332,13 @@ class BaseController:
         else:
             # Rotation about a point in space
             left = x - th * self.wheel_track  * self.gear_reduction / 2.0
-            right = x + th * self.wheel_track  * self.gear_reduction / 2.0
-            
-        self.v_des_left = int(left * self.ticks_per_meter / self.arduino.PID_RATE)
-        self.v_des_right = int(right * self.ticks_per_meter / self.arduino.PID_RATE)
+            right = x + th * self.wheel_track  * self.gear_reduction / 2.0'''
+        # self.v_des_left = int(left * self.ticks_per_meter / self.arduino.PID_RATE)
+        # self.v_des_right = int(right * self.ticks_per_meter / self.arduino.PID_RATE)
+        
+        # unit: rad/s
+        self.v_des_left = self.gear_reduction * (2 * x - th * self.wheel_track) / (self.wheel_diameter)
+        self.v_des_right = self.gear_reduction * (2 * x + th * self.wheel_track) / (self.wheel_diameter)
         
     def reset_odometry(self):
         self.x = 0.0
