@@ -359,7 +359,7 @@ class GP2Y0A02YK0F(IRSensor):
         value = self.device.analog_read(self.pin)
         
         try:
-            distance = 10650.08 * pow(value, -0.935) - 10;
+            distance = 10650.08 * pow(value, -0.935) - 10
         except:
             return float('NaN')
         
@@ -375,7 +375,7 @@ class GP2Y0A02YK0F(IRSensor):
         if distance < self.msg.min_range: distance = float('NaN')
         
         return distance
-
+        
 class IMU(Sensor):
     def __init__(self, *args, **kwargs):
         super(IMU, self).__init__(*args, **kwargs)
