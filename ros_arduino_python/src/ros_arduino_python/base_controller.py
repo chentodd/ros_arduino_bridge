@@ -153,16 +153,19 @@ class BaseController:
                 self.diagnostics.reads += 1
                 self.diagnostics.total_reads += 1
                 left_enc, right_enc = self.arduino.get_encoder_counts()
+                right_enc *= -1
+                # rospy.loginfo("Encoder: %0.3f, %0.3f" % (left_enc, right_enc))
                 self.diagnostics.freq_diag.tick()
             except:
                 self.diagnostics.errors += 1
                 self.bad_encoder_count += 1
                 rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
                 return
-
+            
             # Read the velocity
             try:
                 left_velocity, right_velocity = self.arduino.get_velocity()
+                right_velocity *= -1
             except:
                 rospy.logerr("Velocity exception")
                 return
@@ -261,7 +264,10 @@ class BaseController:
             odom.pose.pose.position.x = self.x
             odom.pose.pose.position.y = self.y
             odom.pose.pose.position.z = 0
-            odom.pose.pose.orientation = quaternion
+            odom.pose.pose.orientation.x = quaternion[0]
+            odom.pose.pose.orientation.y = quaternion[1]
+            odom.pose.pose.orientation.z = quaternion[2]
+            odom.pose.pose.orientation.w = quaternion[3]
             odom.twist.twist.linear.x = linear / dt
             odom.twist.twist.linear.y = 0
             odom.twist.twist.angular.z = angular / dt
@@ -269,18 +275,18 @@ class BaseController:
             # Publish joint state message
             joint_state_msg = JointState()
             joint_state_msg.header.stamp = rospy.Time.now()
-            joint_state_msg.name = list("left_wheel", "right_wheel")
+            joint_state_msg.name = list(["left_wheel", "right_wheel"])
 
             # calculate the rad based on encoder ticks
             l_wheel_rad = left_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
             r_wheel_rad = right_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
-            joint_state_msg.position = list(l_wheel_rad, r_wheel_rad)
+            joint_state_msg.position = list([l_wheel_rad, r_wheel_rad])
 
             # calculate the wheel velocity based on velocity information comes from interpreter
             # the orginal velocity unit is rpm change it to rad/s
             left_velocity_rad_s = left_velocity * pi / 30.0 / self.gear_reduction
             right_velocity_rad_s = right_velocity * pi / 30.0 / self.gear_reduction
-            joint_state_msg.velocity = list(left_velocity, right_velocity)
+            joint_state_msg.velocity = list([left_velocity, right_velocity])
             self.baseJointPub.publish(joint_state_msg)
 
             self.current_speed = Twist()
