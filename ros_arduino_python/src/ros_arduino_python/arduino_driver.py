@@ -58,6 +58,9 @@ class Arduino:
         self.writeTimeout = timeout
         self.debug = debug
 
+        # Buffer define, this is from https://github.com/pyserial/pyserial/issues/216
+        self.buf = bytearray()
+
         # Keep things thread safe
         self.mutex = thread.allocate_lock()
 
@@ -146,14 +149,27 @@ class Arduino:
         self.mutex.acquire()
 
         value = None
+        value_bytearray = None
         error = None
-
+        
         try:
             start = time.time()
             self.serial_port.flushInput()
             self.serial_port.flushOutput()
             self.serial_port.write(cmd + '\r')
-            value = self.serial_port.readline().strip('\n').strip('\r')
+            # New method implement from https://github.com/pyserial/pyserial/issues/216
+            while True:
+                i = max(1, min(2048, self.serial_port.in_waiting))
+                data = self.serial_port.read(i)
+                i = data.find(b"\n")
+                if i >= 0:
+                    value_bytearray = self.buf + data[:i]
+                    self.buf[0:] = data[i+1:]
+                    break
+                else:
+                    self.buf.extend(data)
+            value = value_bytearray.decode('utf-8')
+            # value = self.serial_port.readline().strip('\n').strip('\r')
         except SerialException:
             self.print_debug_msg("Command " + str(cmd) + " failed with Serial Exception")
             error = CommandErrorCode.SERIALEXCEPTION
@@ -222,6 +238,14 @@ class Arduino:
         values = self.execute_array('e')
 
         if len(values) != 2:
+            return None
+        else:
+            return map(int, values)
+
+    def get_velocity(self):
+        '''Read the velocity, command is q, follow v_left, v_right'''
+        values = self.execute_array('q')
+        if len(values != 2):
             return None
         else:
             return map(int, values)
@@ -332,7 +356,7 @@ class Arduino:
             connected to the General Purpose I/O line pinId for a distance,q
             and returns the range in cm.  Sonar distance resolution is integer based.
         '''
-        return int(self.execute('p %d' %pin));
+        return int(self.execute('p %d' %pin))
     
 #    def get_maxez1(self, triggerPin, outputPin):
 #        ''' The maxez1 command queries a Maxbotix MaxSonar-EZ1 sonar
