@@ -240,12 +240,12 @@ class Arduino:
         if len(values) != 2:
             return None
         else:
-            return map(int, values)
+            return map(float, values)
 
     def get_velocity(self):
         '''Read the velocity, command is q, follow v_left, v_right'''
         values = self.execute_array('q')
-        if len(values != 2):
+        if len(values) != 2:
             return None
         else:
             return map(int, values)
