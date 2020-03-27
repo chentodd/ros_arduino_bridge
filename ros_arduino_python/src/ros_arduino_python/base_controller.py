@@ -27,6 +27,7 @@ import tf
 
 from math import sin, cos, pi
 from geometry_msgs.msg import Quaternion, Twist, Pose
+from sensor_msgs.msg import JointState
 from nav_msgs.msg import Odometry
 from tf.broadcaster import TransformBroadcaster
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
@@ -112,6 +113,9 @@ class BaseController:
         self.odomPub = rospy.Publisher('odom', Odometry, queue_size=5)
         self.odomBroadcaster = TransformBroadcaster()
 
+        # Set up joint state publisher for each wheel
+        self.baseJointPub = rospy.Publisher("syscom_mpf/joint_states", JointState, queue_size=5)
+
         rospy.loginfo("Started base controller for a base of " + str(self.wheel_track) + "m wide with " + str(self.encoder_resolution) + " ticks per rev")
         rospy.loginfo("Publishing odometry data at: " + str(self.rate) + " Hz using " + str(self.base_frame) + " as base frame")
         
@@ -145,7 +149,6 @@ class BaseController:
         now = rospy.Time.now()
         if now > self.t_next:
             # Read the encoders
-            rospy.loginfo("Time: %d" % now.secs)
             try:
                 self.diagnostics.reads += 1
                 self.diagnostics.total_reads += 1
@@ -155,6 +158,13 @@ class BaseController:
                 self.diagnostics.errors += 1
                 self.bad_encoder_count += 1
                 rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
+                return
+
+            # Read the velocity
+            try:
+                left_velocity, right_velocity = self.arduino.get_velocity()
+            except:
+                rospy.logerr("Velocity exception")
                 return
 
             # Check for jumps in encoder readings
@@ -242,7 +252,8 @@ class BaseController:
                     self.base_frame,
                     "odom"
                     )
-    
+
+            # Publish odometry
             odom = Odometry()
             odom.header.frame_id = "odom"
             odom.child_frame_id = self.base_frame
@@ -254,7 +265,24 @@ class BaseController:
             odom.twist.twist.linear.x = linear / dt
             odom.twist.twist.linear.y = 0
             odom.twist.twist.angular.z = angular / dt
-            
+
+            # Publish joint state message
+            joint_state_msg = JointState()
+            joint_state_msg.header.stamp = rospy.Time.now()
+            joint_state_msg.name = list("left_wheel", "right_wheel")
+
+            # calculate the rad based on encoder ticks
+            l_wheel_rad = left_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
+            r_wheel_rad = right_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
+            joint_state_msg.position = list(l_wheel_rad, r_wheel_rad)
+
+            # calculate the wheel velocity based on velocity information comes from interpreter
+            # the orginal velocity unit is rpm change it to rad/s
+            left_velocity_rad_s = left_velocity * pi / 30.0 / self.gear_reduction
+            right_velocity_rad_s = right_velocity * pi / 30.0 / self.gear_reduction
+            joint_state_msg.velocity = list(left_velocity, right_velocity)
+            self.baseJointPub.publish(joint_state_msg)
+
             self.current_speed = Twist()
             self.current_speed.linear.x = linear / dt
             self.current_speed.angular.z = angular / dt
@@ -304,7 +332,7 @@ class BaseController:
                     self.v_right = self.v_des_right
             
             # Set motor speeds in encoder ticks per PID loop
-            rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
+            # rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
             if not self.stopped:
                 self.arduino.drive(self.v_left * 100, self.v_right * 100)
                 
