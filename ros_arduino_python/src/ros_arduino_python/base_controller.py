@@ -286,7 +286,7 @@ class BaseController:
             # the orginal velocity unit is rpm change it to rad/s
             left_velocity_rad_s = left_velocity * pi / 30.0 / self.gear_reduction
             right_velocity_rad_s = right_velocity * pi / 30.0 / self.gear_reduction
-            joint_state_msg.velocity = list([left_velocity, right_velocity])
+            joint_state_msg.velocity = list([left_velocity_rad_s, right_velocity_rad_s])
             self.baseJointPub.publish(joint_state_msg)
 
             self.current_speed = Twist()
