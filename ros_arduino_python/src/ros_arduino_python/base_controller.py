@@ -102,6 +102,7 @@ class BaseController:
         self.v_des_left = 0             # cmd_vel setpoint
         self.v_des_right = 0
         self.last_cmd_vel = now
+        self.cmd_vel_time_out_ = 0.25
 
         # Subscriptions
         rospy.Subscriber("cmd_vel", Twist, self.cmdVelCallback)
@@ -341,9 +342,12 @@ class BaseController:
             # rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
             if not self.stopped:
                 self.arduino.drive(self.v_left * 100, self.v_right * 100)
-                
+            
             self.t_next = now + self.t_delta
-
+            if (now - self.last_cmd_vel).to_sec() > self.cmd_vel_time_out_:
+                self.v_des_left = 0
+                self.v_des_right = 0
+        
     def stop(self):
         self.stopped = True
         self.arduino.drive(0, 0)
