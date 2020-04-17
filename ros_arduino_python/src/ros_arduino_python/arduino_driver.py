@@ -210,7 +210,7 @@ class Arduino:
         '''
         try:
             ack = self.execute(cmd)
-            return ack == "OK"
+            return ack == "OK\r"
         except CommandException as e:
             return False
 
@@ -237,6 +237,7 @@ class Arduino:
         '''
         values = self.execute_array('e')
 
+        # print(len(values))
         if len(values) != 2:
             return None
         else:
