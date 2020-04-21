@@ -19,7 +19,7 @@ base_frame: base_link
 use_imu_heading: False
 
 # Publish the odom->base_link transform?
-publish_odom_base_transform: False
+publish_odom_base_transform: True
 
 # === Robot drivetrain parameters
 wheel_diameter: 0.208

@@ -251,7 +251,7 @@ class BaseController:
             if self.publish_odom_base_transform:
                 self.odomBroadcaster.sendTransform(
                     (self.x, self.y, 0), 
-                    (quaternion.x, quaternion.y, quaternion.z, quaternion.w),
+                    (quaternion[0], quaternion[1], quaternion[2], quaternion[3]),
                     rospy.Time.now(),
                     self.base_frame,
                     "odom"
