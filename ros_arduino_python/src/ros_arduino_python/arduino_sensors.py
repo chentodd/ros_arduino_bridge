@@ -21,6 +21,7 @@
 
 import rospy
 from sensor_msgs.msg import Range, Imu
+from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import Twist, Quaternion, Vector3
 from ros_arduino_python.arduino_driver import CommandErrorCode, CommandException
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
@@ -283,6 +284,22 @@ class RangeSensor(Sensor):
         self.value = self.read_value()
         return AnalogFloatSensorReadResponse(self.value)
 
+class RangeArraySensor(Sensor):
+    def __init__(self, *args, **kwargs):
+        super(RangeArraySensor, self).__init__(*args, **kwargs)
+        self.message_type = MessageType.RANGE
+        self.msg = Float32MultiArray()
+
+    def create_publisher(self):
+        self.pub = rospy.Publisher("~sensor/" + self.name, Float32MultiArray, queue_size=5)
+
+    def create_services(self):
+        pass
+
+    def publish_message(self):
+        self.msg.data = self.read_value()
+        self.pub.publish(self.msg)
+
 class SonarSensor(RangeSensor):
     def __init__(self, *args, **kwargs):
         super(SonarSensor, self).__init__(*args, **kwargs)
@@ -312,6 +329,18 @@ class Ping(SonarSensor):
         
         return distance
         
+class PingArray(RangeArraySensor):
+    def __init__(self,*args, **kwargs):
+        super(PingArray, self).__init__(*args, **kwargs)
+        
+    def read_value(self):
+        # The Arduino Ping code returns the distance in centimeters
+        values = self.device.get_ping_array()
+
+        # Convert it to meters for ROS
+        values_meter = [x / 100.0 for x in values]
+        
+        return values_meter
 class GP2D12(IRSensor):
     # The GP2D12 has been replaced by the GP2Y0A21YK
     def __init__(self, *args, **kwargs):

@@ -28,6 +28,7 @@ import os, time, sys, traceback
 from serial.serialutil import SerialException, SerialTimeoutException
 import serial
 from exceptions import Exception
+import struct
 
 # Possible errors when reading/writing to the Arduino
 class CommandErrorCode:
@@ -63,6 +64,7 @@ class Arduino:
 
         # Keep things thread safe
         self.mutex = thread.allocate_lock()
+        self.mutex_for_bytes = thread.allocate_lock()
 
     def connect(self):
         try:
@@ -76,7 +78,8 @@ class Arduino:
                 time.sleep(self.timeout)
 
             # Now open the port with the real settings.  An initial timeout of at least 1.0 seconds seems to work best
-            self.serial_port = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=max(1.0, self.timeout))
+            # self.serial_port = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=max(1.0, self.timeout))
+            self.serial_port = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=1.0)
 
             # It can take time for the serial port to wake up
             max_attempts = 10
@@ -158,16 +161,21 @@ class Arduino:
             self.serial_port.flushOutput()
             self.serial_port.write(cmd + '\r')
             # New method implement from https://github.com/pyserial/pyserial/issues/216
-            while True:
-                i = max(1, min(2048, self.serial_port.in_waiting))
-                data = self.serial_port.read(i)
-                i = data.find(b"\n")
-                if i >= 0:
-                    value_bytearray = self.buf + data[:i]
-                    self.buf[0:] = data[i+1:]
-                    break
-                else:
-                    self.buf.extend(data)
+            i = self.buf.find(b"\n")
+            if i >= 0:
+                value_bytearray = self.buf[:i]
+                self.buf = self.buf[i+1:]
+            else:
+                while True:
+                    i = max(1, min(2048, self.serial_port.in_waiting))
+                    data = self.serial_port.read(i)
+                    i = data.find(b"\n")
+                    if i >= 0:
+                        value_bytearray = self.buf + data[:i]
+                        self.buf[0:] = data[i+1:]
+                        break
+                    else:
+                        self.buf.extend(data)
             value = value_bytearray.decode('utf-8')
             # value = self.serial_port.readline().strip('\n').strip('\r')
         except SerialException:
@@ -358,6 +366,14 @@ class Arduino:
             and returns the range in cm.  Sonar distance resolution is integer based.
         '''
         return int(self.execute('p %d' %pin))
+
+    def get_ping_array(self):
+        '''Read the ping values as array, command is f, follow sonar_1...sonar_9'''
+        values = self.execute_array('f')
+        if len(values) != 9:
+            return None
+        else:
+            return map(int, values)
     
 #    def get_maxez1(self, triggerPin, outputPin):
 #        ''' The maxez1 command queries a Maxbotix MaxSonar-EZ1 sonar
