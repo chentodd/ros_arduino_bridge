@@ -1,9 +1,9 @@
 port: /dev/ttyACM0 
-baud: 9600 
+baud: 19200
 timeout: 0.1
 
 rate: 50
-sensorstate_rate: 10
+sensorstate_rate: 50
 
 # Are we using the base controller code
 use_base_controller: True
@@ -41,16 +41,8 @@ odom_angular_scale_correction: 1.0
 
 # Sensor definitions
 sensors: {
-  sonar_1:         {pin: 0, type: Ping, rate: 20},
-  sonar_2:         {pin: 1, type: Ping, rate: 20},
-  sonar_3:         {pin: 2, type: Ping, rate: 20},
-  sonar_4:         {pin: 3, type: Ping, rate: 20},
-  sonar_5:         {pin: 4, type: Ping, rate: 20},
-  sonar_6:         {pin: 5, type: Ping, rate: 20},
-  sonar_7:         {pin: 6, type: Ping, rate: 20},
-  sonar_8:         {pin: 7, type: Ping, rate: 20},
-  sonar_9:         {pin: 8, type: Ping, rate: 20},
-  ir_front_A:      {pin: 0, type: GP2Y0A02YK0F, rate: 20},
-  ir_front_B:      {pin: 1, type: GP2Y0A02YK0F, rate: 20},
-  imu_data:        {type: IMU, rate: 20}
+  sonar_all:       {pin: 0, type: Ping, rate: 50},
+  #ir_front_A:      {pin: 0, type: GP2Y0A02YK0F, rate: 50},
+  #ir_front_B:      {pin: 1, type: GP2Y0A02YK0F, rate: 50},
+  imu_data:        {type: IMU, rate: 50}
 }
