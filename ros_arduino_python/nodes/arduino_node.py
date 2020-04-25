@@ -163,7 +163,7 @@ class ArduinoROS():
         # Initialize individual sensors appropriately
         for name, params in sensor_params.iteritems():
             if params['type'].lower() == 'Ping'.lower():
-                sensor = Ping(self.device, name, **params)
+                sensor = PingArray(self.device, name, **params)
             elif params['type'].lower() == 'GP2D12'.lower() or params['type'].lower() == 'GP2Y0A21YK0F'.lower():
                 sensor = GP2D12(self.device, name, **params)
             elif params['type'].lower() == 'GP2Y0A02YK0F'.lower():
@@ -282,7 +282,7 @@ class ArduinoROS():
             now = rospy.Time.now()
             
             # Heartbeat/watchdog test for the serial connection
-            try:
+            '''try:
                 # Update read counters
                 self.device.diagnostics.reads += 1
                 self.device.diagnostics.total_reads += 1
@@ -315,7 +315,7 @@ class ArduinoROS():
                         except:
                             r.sleep()
                             self.diagnostics_publisher.update()
-                            continue
+                            continue'''
             
             # Poll any sensors
             for sensor in self.device.sensors:
@@ -329,10 +329,10 @@ class ArduinoROS():
                     self.base_controller.poll()
                 
             # Poll any joints
-            if self.have_joints:
+            '''if self.have_joints:
                 with mutex:
                     self.servo_controller.poll()
-                    self.joint_state_publisher.poll(self.device.joints.values())
+                    self.joint_state_publisher.poll(self.device.joints.values())'''
                                 
             # Publish all sensor values on a single topic for convenience
             now = rospy.Time.now()
@@ -353,7 +353,7 @@ class ArduinoROS():
                 self.t_next_sensors = now + self.t_delta_sensors
                 
             # Update diagnostics and publish
-            self.diagnostics_publisher.update()
+            # self.diagnostics_publisher.update()
             
             r.sleep()
     
