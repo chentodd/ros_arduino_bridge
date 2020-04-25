@@ -102,7 +102,7 @@ class BaseController:
         self.v_des_left = 0             # cmd_vel setpoint
         self.v_des_right = 0
         self.last_cmd_vel = now
-        self.cmd_vel_time_out_ = 0.25
+        self.cmd_vel_time_out_ = 0.15
 
         # Subscriptions
         rospy.Subscriber("cmd_vel", Twist, self.cmdVelCallback)
@@ -148,205 +148,207 @@ class BaseController:
 
     def poll(self):
         now = rospy.Time.now()
-        if now > self.t_next:
-            # Read the encoders
+        # Read the encoders
+        try:
+            self.diagnostics.reads += 1
+            self.diagnostics.total_reads += 1
+            left_enc, right_enc = self.arduino.get_encoder_counts()
+            right_enc *= -1
+            # rospy.loginfo("Encoder: %0.3f, %0.3f" % (left_enc, right_enc))
+            self.diagnostics.freq_diag.tick()
+        except:
+            self.diagnostics.errors += 1
+            self.bad_encoder_count += 1
+            rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
+            return
+            
+        # Read the velocity
+        try:
+            left_velocity, right_velocity = self.arduino.get_velocity()
+            right_velocity *= -1
+        except:
+            rospy.logerr("Velocity exception")
+            return
+        # left_velocity = 0
+        # right_velocity = 0
+
+        # Check for jumps in encoder readings
+        if self.detect_enc_jump_error:
             try:
-                self.diagnostics.reads += 1
-                self.diagnostics.total_reads += 1
-                left_enc, right_enc = self.arduino.get_encoder_counts()
-                right_enc *= -1
-                # rospy.loginfo("Encoder: %0.3f, %0.3f" % (left_enc, right_enc))
-                self.diagnostics.freq_diag.tick()
+                #rospy.loginfo("Left: %d LEFT: %d Right: %d RIGHT: %d", left_enc, self.enc_left, right_enc, self.enc_right)
+                enc_jump_error = False
+                if abs(right_enc - self.enc_right) > self.enc_jump_error_threshold:
+                    self.diagnostics.errors += 1
+                    self.bad_encoder_count += 1
+                    rospy.logerr("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
+                    self.enc_right = right_enc
+                    enc_jump_error = True
+
+                if abs(left_enc - self.enc_left) > self.enc_jump_error_threshold:
+                    self.diagnostics.errors += 1
+                    self.bad_encoder_count += 1
+                    rospy.logerr("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
+                    self.enc_left = left_enc
+                    enc_jump_error = True
+
+                if enc_jump_error:
+                    return
             except:
-                self.diagnostics.errors += 1
-                self.bad_encoder_count += 1
-                rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
-                return
-            
-            # Read the velocity
-            try:
-                left_velocity, right_velocity = self.arduino.get_velocity()
-                right_velocity *= -1
-            except:
-                rospy.logerr("Velocity exception")
-                return
+                pass
 
-            # Check for jumps in encoder readings
-            if self.detect_enc_jump_error:
-                try:
-                    #rospy.loginfo("Left: %d LEFT: %d Right: %d RIGHT: %d", left_enc, self.enc_left, right_enc, self.enc_right)
-                    enc_jump_error = False
-                    if abs(right_enc - self.enc_right) > self.enc_jump_error_threshold:
-                        self.diagnostics.errors += 1
-                        self.bad_encoder_count += 1
-                        rospy.logerr("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
-                        self.enc_right = right_enc
-                        enc_jump_error = True
+        dt = now - self.then
+        self.then = now
+        dt = dt.to_sec()
+          
+        # Calculate odometry
+        if self.enc_left == None:
+            dright = 0
+            dleft = 0
+        else:
+            dright = (right_enc - self.enc_right) / self.ticks_per_meter
+            dleft = (left_enc - self.enc_left) / self.ticks_per_meter
 
-                    if abs(left_enc - self.enc_left) > self.enc_jump_error_threshold:
-                        self.diagnostics.errors += 1
-                        self.bad_encoder_count += 1
-                        rospy.logerr("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
-                        self.enc_left = left_enc
-                        enc_jump_error = True
-
-                    if enc_jump_error:
-                        return
-                except:
-                    pass
-
-            dt = now - self.then
-            self.then = now
-            dt = dt.to_sec()
-            
-            # Calculate odometry
-            if self.enc_left == None:
-                dright = 0
-                dleft = 0
-            else:
-                dright = (right_enc - self.enc_right) / self.ticks_per_meter
-                dleft = (left_enc - self.enc_left) / self.ticks_per_meter
-
-            self.enc_right = right_enc
-            self.enc_left = left_enc
-            
-            # Old method, replace it with the Odometry::integrateExact and Odometry::integrateRungeKutta2
-            # in ros_diff_drive_controller
-            '''dxy_ave = self.odom_linear_scale_correction * (dright + dleft) / 2.0
-            dth = self.odom_angular_scale_correction * (dright - dleft) / float(self.wheel_track)
-            vxy = dxy_ave / dt
-            vth = dth / dt
+        self.enc_right = right_enc
+        self.enc_left = left_enc
+           
+        # Old method, replace it with the Odometry::integrateExact and Odometry::integrateRungeKutta2
+        # in ros_diff_drive_controller
+        '''dxy_ave = self.odom_linear_scale_correction * (dright + dleft) / 2.0
+        dth = self.odom_angular_scale_correction * (dright - dleft) / float(self.wheel_track)
+        vxy = dxy_ave / dt
+        vth = dth / dt
                 
-            if (dxy_ave != 0):
-                dx = cos(dth) * dxy_ave
-                dy = -sin(dth) * dxy_ave
-                self.x += (cos(self.th) * dx - sin(self.th) * dy)
-                self.y += (sin(self.th) * dx + cos(self.th) * dy)
+        if (dxy_ave != 0):
+            dx = cos(dth) * dxy_ave
+            dy = -sin(dth) * dxy_ave
+            self.x += (cos(self.th) * dx - sin(self.th) * dy)
+            self.y += (sin(self.th) * dx + cos(self.th) * dy)
     
-            if (dth != 0):
-                self.th += dth '''
-            linear = (dright + dleft) * 0.5
-            angular = (dright - dleft) / float(self.wheel_track)
-            if (abs(angular) < 1e-6) :
-                direction = self.th + angular * 0.5
-                self.x += linear * cos(direction)
-                self.y += linear * sin(direction)
-                self.th += angular
-            else :
-                heading_old = self.th
-                r = linear / angular
-                self.th += angular
-                self.x +=  r * (sin(self.th) - sin(heading_old))
-                self.y += -r * (cos(self.th) - cos(heading_old))
+        if (dth != 0):
+            self.th += dth '''
+        linear = (dright + dleft) * 0.5
+        angular = (dright - dleft) / float(self.wheel_track)
+        if (abs(angular) < 1e-6) :
+            direction = self.th + angular * 0.5
+            self.x += linear * cos(direction)
+            self.y += linear * sin(direction)
+            self.th += angular
+        else :
+            heading_old = self.th
+            r = linear / angular
+            self.th += angular
+            self.x +=  r * (sin(self.th) - sin(heading_old))
+            self.y += -r * (cos(self.th) - cos(heading_old))
 
-            quaternion = tf.transformations.quaternion_from_euler(0, 0, self.th)
+        quaternion = tf.transformations.quaternion_from_euler(0, 0, self.th)
 
-            '''quaternion = Quaternion()
-            quaternion.x = 0.0 
-            quaternion.y = 0.0
-            quaternion.z = sin(self.th / 2.0)
-            quaternion.w = cos(self.th / 2.0)'''
+        '''quaternion = Quaternion()
+        quaternion.x = 0.0 
+        quaternion.y = 0.0
+        quaternion.z = sin(self.th / 2.0)
+        quaternion.w = cos(self.th / 2.0)'''
     
-            # Create the odometry transform frame broadcaster.
-            if self.publish_odom_base_transform:
-                self.odomBroadcaster.sendTransform(
-                    (self.x, self.y, 0), 
-                    (quaternion[0], quaternion[1], quaternion[2], quaternion[3]),
-                    rospy.Time.now(),
-                    self.base_frame,
-                    "odom"
-                    )
+        # Create the odometry transform frame broadcaster.
+        if self.publish_odom_base_transform:
+            self.odomBroadcaster.sendTransform(
+                (self.x, self.y, 0), 
+                (quaternion[0], quaternion[1], quaternion[2], quaternion[3]),
+                rospy.Time.now(),
+                self.base_frame,
+                "odom"
+                )
 
-            # Publish odometry
-            odom = Odometry()
-            odom.header.frame_id = "odom"
-            odom.child_frame_id = self.base_frame
-            odom.header.stamp = now
-            odom.pose.pose.position.x = self.x
-            odom.pose.pose.position.y = self.y
-            odom.pose.pose.position.z = 0
-            odom.pose.pose.orientation.x = quaternion[0]
-            odom.pose.pose.orientation.y = quaternion[1]
-            odom.pose.pose.orientation.z = quaternion[2]
-            odom.pose.pose.orientation.w = quaternion[3]
-            odom.twist.twist.linear.x = linear / dt
-            odom.twist.twist.linear.y = 0
-            odom.twist.twist.angular.z = angular / dt
+        # Publish odometry
+        odom = Odometry()
+        odom.header.frame_id = "odom"
+        odom.child_frame_id = self.base_frame
+        odom.header.stamp = now
+        odom.pose.pose.position.x = self.x
+        odom.pose.pose.position.y = self.y
+        odom.pose.pose.position.z = 0
+        odom.pose.pose.orientation.x = quaternion[0]
+        odom.pose.pose.orientation.y = quaternion[1]
+        odom.pose.pose.orientation.z = quaternion[2]
+        odom.pose.pose.orientation.w = quaternion[3]
+        odom.twist.twist.linear.x = linear / dt
+        odom.twist.twist.linear.y = 0
+        odom.twist.twist.angular.z = angular / dt
 
-            # Publish joint state message
-            joint_state_msg = JointState()
-            joint_state_msg.header.stamp = rospy.Time.now()
-            joint_state_msg.name = list(["left_wheel", "right_wheel"])
+        # Publish joint state message
+        joint_state_msg = JointState()
+        joint_state_msg.header.stamp = rospy.Time.now()
+        joint_state_msg.name = list(["left_wheel", "right_wheel"])
 
-            # calculate the rad based on encoder ticks
-            l_wheel_rad = left_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
-            r_wheel_rad = right_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
-            joint_state_msg.position = list([l_wheel_rad, r_wheel_rad])
+        # calculate the rad based on encoder ticks
+        l_wheel_rad = left_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
+        r_wheel_rad = right_enc * 2 * pi / self.encoder_resolution / self.gear_reduction
+        joint_state_msg.position = list([l_wheel_rad, r_wheel_rad])
 
-            # calculate the wheel velocity based on velocity information comes from interpreter
-            # the orginal velocity unit is rpm change it to rad/s
-            left_velocity_rad_s = left_velocity * pi / 30.0 / self.gear_reduction
-            right_velocity_rad_s = right_velocity * pi / 30.0 / self.gear_reduction
-            joint_state_msg.velocity = list([left_velocity_rad_s, right_velocity_rad_s])
-            self.baseJointPub.publish(joint_state_msg)
+        # calculate the wheel velocity based on velocity information comes from interpreter
+        # the orginal velocity unit is rpm change it to rad/s
+        left_velocity_rad_s = left_velocity * pi / 30.0 / self.gear_reduction
+        right_velocity_rad_s = right_velocity * pi / 30.0 / self.gear_reduction
+        joint_state_msg.velocity = list([left_velocity_rad_s, right_velocity_rad_s])
+        self.baseJointPub.publish(joint_state_msg)
 
-            self.current_speed = Twist()
-            self.current_speed.linear.x = linear / dt
-            self.current_speed.angular.z = angular / dt
+        self.current_speed = Twist()
+        self.current_speed.linear.x = linear / dt
+        self.current_speed.angular.z = angular / dt
 
-            """
-            Covariance values taken from Kobuki node odometry.cpp at:
-            https://github.com/yujinrobot/kobuki/blob/indigo/kobuki_node/src/library/odometry.cpp
+        """
+        Covariance values taken from Kobuki node odometry.cpp at:
+        https://github.com/yujinrobot/kobuki/blob/indigo/kobuki_node/src/library/odometry.cpp
             
-            Pose covariance (required by robot_pose_ekf) TODO: publish realistic values
-            Odometry yaw covariance must be much bigger than the covariance provided
-            by the imu, as the later takes much better measures
-            """
-            odom.pose.covariance[0]  = 0.1
-            odom.pose.covariance[7]  = 0.1
-            if self.use_imu_heading:
-                #odom.pose.covariance[35] = 0.2
-                odom.pose.covariance[35] = 0.05
-            else:
-                odom.pose.covariance[35] = 0.05
+        Pose covariance (required by robot_pose_ekf) TODO: publish realistic values
+        Odometry yaw covariance must be much bigger than the covariance provided
+        by the imu, as the later takes much better measures
+        """
+        odom.pose.covariance[0]  = 0.1
+        odom.pose.covariance[7]  = 0.1
+        if self.use_imu_heading:
+            #odom.pose.covariance[35] = 0.2
+            odom.pose.covariance[35] = 0.05
+        else:
+            odom.pose.covariance[35] = 0.05
             
-            odom.pose.covariance[14] = sys.float_info.max  # set a non-zero covariance on unused
-            odom.pose.covariance[21] = sys.float_info.max  # dimensions (z, pitch and roll); this
-            odom.pose.covariance[28] = sys.float_info.max  # is a requirement of robot_pose_ekf
+        odom.pose.covariance[14] = sys.float_info.max  # set a non-zero covariance on unused
+        odom.pose.covariance[21] = sys.float_info.max  # dimensions (z, pitch and roll); this
+        odom.pose.covariance[28] = sys.float_info.max  # is a requirement of robot_pose_ekf
 
-            self.odomPub.publish(odom)
+        self.odomPub.publish(odom)
             
-            '''if now > (self.last_cmd_vel + rospy.Duration(self.timeout)):
-                self.v_des_left = 0
-                self.v_des_right = 0'''
+        '''if now > (self.last_cmd_vel + rospy.Duration(self.timeout)):
+            self.v_des_left = 0
+            self.v_des_right = 0'''
                 
+        if self.v_left < self.v_des_left:
+            self.v_left += self.max_accel
+            if self.v_left > self.v_des_left:
+                self.v_left = self.v_des_left
+        else:
+            self.v_left -= self.max_accel
             if self.v_left < self.v_des_left:
-                self.v_left += self.max_accel
-                if self.v_left > self.v_des_left:
-                    self.v_left = self.v_des_left
-            else:
-                self.v_left -= self.max_accel
-                if self.v_left < self.v_des_left:
-                    self.v_left = self.v_des_left
+                self.v_left = self.v_des_left
             
+        if self.v_right < self.v_des_right:
+            self.v_right += self.max_accel
+            if self.v_right > self.v_des_right:
+                self.v_right = self.v_des_right
+        else:
+            self.v_right -= self.max_accel
             if self.v_right < self.v_des_right:
-                self.v_right += self.max_accel
-                if self.v_right > self.v_des_right:
-                    self.v_right = self.v_des_right
-            else:
-                self.v_right -= self.max_accel
-                if self.v_right < self.v_des_right:
-                    self.v_right = self.v_des_right
+                self.v_right = self.v_des_right
+           
+        # Set motor speeds in encoder ticks per PID loop
+        rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
+        if not self.stopped:
+            self.arduino.drive(self.v_left * 100, self.v_right * 100)
+        rospy.loginfo("Command finished")
             
-            # Set motor speeds in encoder ticks per PID loop
-            # rospy.loginfo("Command: %0.3f, %0.3f" % (self.v_left, self.v_right))
-            if not self.stopped:
-                self.arduino.drive(self.v_left * 100, self.v_right * 100)
-            
-            self.t_next = now + self.t_delta
-            if (now - self.last_cmd_vel).to_sec() > self.cmd_vel_time_out_:
-                self.v_des_left = 0
-                self.v_des_right = 0
+        self.t_next = now + self.t_delta
+        if (now - self.last_cmd_vel).to_sec() > self.cmd_vel_time_out_:
+            self.v_des_left = 0
+            self.v_des_right = 0
         
     def stop(self):
         self.stopped = True
